@@ -63,6 +63,8 @@ app.get("/station/:stationCode", (req, res) => {
           departTime: timeFormat(service.locationDetail.gbttBookedDeparture),
           destination: service.locationDetail.destination[0].description,
           operator: service.atocName,
+          origin: service.locationDetail.origin[0].description,
+          originTime: service.locationDetail.origin[0].publicTime,
           platform: service.locationDetail.platform,
           serviceId: service.serviceUid,
           serviceType: service.serviceType,
@@ -100,6 +102,24 @@ const stopStatus = (station) => {
   return status;
 };
 
+const getStopDetails = (stops) => {
+  stops = stops.map((station) => ({
+    name: station.description,
+    status: stopStatus(station),
+    platform: station.platform,
+    bookedTime:
+      station.gbttBookedDeparture == undefined
+        ? timeFormat(station.gbttBookedArrival)
+        : timeFormat(station.gbttBookedDeparture),
+    realTime:
+      station.realtimeDeparture === undefined
+        ? timeFormat(station.realtimeArrival)
+        : timeFormat(station.realtimeDeparture),
+  }));
+
+  return stops;
+};
+
 app.get("/station/:stationCode/service/:serviceId", (req, res) => {
   const serviceId = req.params.serviceId;
   console.log(req.params);
@@ -112,30 +132,31 @@ app.get("/station/:stationCode/service/:serviceId", (req, res) => {
       { auth }
     )
     .then((response) => {
-      let stops = [];
+      let service = {
+        selected: "",
+        origin: "",
+        destination: "",
+        priorStops: [],
+        followingStops: [],
+      };
 
-      for (var i = response.data.locations.length - 1; i >= 0; i--) {
-        stops.unshift(response.data.locations[i]);
-        if (response.data.locations[i].crs === req.params.stationCode) {
-          break;
-        }
-      }
+      const stations = response.data.locations;
 
-      stops = stops.map((station) => ({
-        name: station.description,
-        status: stopStatus(station),
-        platform: station.platform,
-        bookedTime:
-          station.gbttBookedDeparture == undefined
-            ? station.gbttBookedArrival
-            : station.gbttBookedDeparture,
-        realTime:
-          station.realtimeDeparture === undefined
-            ? station.realtimeArrival
-            : station.realtimeDeparture,
-      }));
+      service.origin = getStopDetails([stations[0]])[0];
+      service.destination = getStopDetails([stations[stations.length - 1]])[0];
 
-      res.json({ stops });
+      const selectIndex = stations.findIndex(
+        (station) => station.crs == req.params.stationCode
+      );
+      service.selected = getStopDetails([stations[selectIndex]])[0];
+      service.priorStops = getStopDetails(stations.slice(1, selectIndex));
+      service.followingStops = getStopDetails(
+        stations.slice(selectIndex + 1, stations.length - 1)
+      );
+
+      console.log(service);
+
+      res.json({ service });
     })
     .catch((error) => {
       console.error("Error making API request:", error.message);
